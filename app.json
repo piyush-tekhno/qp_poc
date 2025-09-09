@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "QP",
-    "slug": "QP",
+    "name": "QPE",
+    "slug": "QPE",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -42,7 +42,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "8ae88bf0-b131-4af1-b7a3-e2a7e1571175"
+        "projectId": "7ff13306-5261-4c70-aa77-8d5b3fda4451"
       }
     }
   }

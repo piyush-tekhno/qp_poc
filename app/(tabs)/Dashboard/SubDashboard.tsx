@@ -212,6 +212,7 @@ export default function SubDashboard() {
     <View style={styles.paperCard}>
       <View style={styles.paperHeader}>
         <Text style={styles.paperTitle}>{item.title}</Text>
+
         <View
           style={[
             styles.difficultyBadge,
@@ -263,9 +264,17 @@ export default function SubDashboard() {
     <View style={styles.container}>
       <View style={[styles.header, { backgroundColor: headerColor }]}>
         <Text style={styles.headerTitle}>{subjectName} Question Papers</Text>
+
         <Text style={styles.headerSubtitle}>
           All available test papers for {subjectName}
         </Text>
+      </View>
+
+      <View style= {{alignItems : 'center'}}>
+        <TouchableOpacity  onPress={() => router.push('/Dashboard/EduApp')}> 
+        <Text>eduapp</Text>
+
+        </TouchableOpacity>
       </View>
 
       {subjectData.length > 0 ? (

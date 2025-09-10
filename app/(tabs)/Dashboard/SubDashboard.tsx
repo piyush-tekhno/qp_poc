@@ -245,7 +245,7 @@ export default function SubDashboard() {
           style={styles.viewButton}
           onPress={() =>
             router.push({
-              pathname: "/Dashboard/QuestionPaper",
+              pathname: "/Dashboard/EduApp",
               params: { subject: subjectName, paperTitle: item.title },
             })
           }

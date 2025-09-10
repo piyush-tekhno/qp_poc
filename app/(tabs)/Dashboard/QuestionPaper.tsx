@@ -2034,6 +2034,7 @@ import {
   Modal,
   ActivityIndicator,
   Platform,
+  PanResponder,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { Ionicons, MaterialIcons, FontAwesome } from "@expo/vector-icons";
@@ -2042,10 +2043,20 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { Asset } from "expo-asset";
+import {
+  scale,
+  normalizeFont,
+  verticalScale,
+  moderateScale,
+  responsivePadding,
+  responsiveMargin,
+} from "../../../utils/responsive";
+import * as ImageManipulator from 'expo-image-manipulator';
+import { DEFAULT_OVERLAY_BASE64} from '../../../constants/defaultOverlayBase64'
 
 const { width, height } = Dimensions.get("window");
 
-const DEFAULT_OVERLAY_IMAGE = require("../../../assets/images/OIP.jpeg");
+
 
 export default function MultiPhotoPDFGenerator() {
   const [photos, setPhotos] = useState([]);
@@ -2056,31 +2067,60 @@ export default function MultiPhotoPDFGenerator() {
   const [photoToHide, setPhotoToHide] = useState(null);
   const [overlayScale, setOverlayScale] = useState(1.0);
   const [overlayPosition, setOverlayPosition] = useState({ x: 0.5, y: 0.5 });
-  const [defaultOverlayBase64, setDefaultOverlayBase64] = useState(null);
+  const [defaultOverlayBase64, setDefaultOverlayBase64] = useState<string | null>(null);
   const [adjustingPhotoId, setAdjustingPhotoId] = useState(null);
+const [isOverlayReady, setIsOverlayReady] = useState(false);
 
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   // Load the default overlay image and convert to base64
-  useEffect(() => {
-    const loadDefaultOverlay = async () => {
-      try {
-        await Asset.fromModule(DEFAULT_OVERLAY_IMAGE).downloadAsync();
-        const localUri = Asset.fromModule(DEFAULT_OVERLAY_IMAGE).localUri;
 
-        const base64 = await FileSystem.readAsStringAsync(localUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+// useEffect(() => {
+//   const loadDefaultOverlay = async () => {
+//     try {
+//       const image = Image.resolveAssetSource(DEFAULT_OVERLAY_IMAGE);
 
-        setDefaultOverlayBase64(`data:image/jpeg;base64,${base64}`);
-      } catch (error) {
-        console.error("Error loading default overlay:", error);
-        Alert.alert("Error", "Failed to load default overlay image");
-      }
-    };
+//       if (Platform.OS === 'android' && !image.uri.startsWith('file://')) {
+//         const base64 = await FileSystem.readAsStringAsync(image.uri, {
+//           encoding: FileSystem.EncodingType.Base64,
+//         });
+//         setDefaultOverlayBase64(`data:image/jpeg;base64,${base64}`);
+//       } else {
+//         const response = await fetch(image.uri);
+//         const blob = await response.blob();
+//         const reader = new FileReader();
+//         reader.onload = () => {
+//           if (typeof reader.result === "string") {
+//             setDefaultOverlayBase64(reader.result);
+//             setIsOverlayReady(true); // ← Set ready flag
+//           } else {
+//             console.error("Failed to read image as base64");
+//           }
+//         };
+//         reader.readAsDataURL(blob);
+//       }
+//     } catch (error) {
+//       console.error("Error loading default overlay:", error);
 
-    loadDefaultOverlay();
-  }, []);
+//       const fallbackImage = Image.resolveAssetSource(DEFAULT_OVERLAY_IMAGE).uri;
+
+//       const base64 = await FileSystem.readAsStringAsync(fallbackImage, {
+//         encoding: FileSystem.EncodingType.Base64,
+//       });
+
+//       setDefaultOverlayBase64(`data:image/jpeg;base64,${base64}`);
+//       setIsOverlayReady(true); // ← Set ready flag
+//     }
+//   };
+//   loadDefaultOverlay();
+// }, []);
+
+
+useEffect(() => {
+  setDefaultOverlayBase64(DEFAULT_OVERLAY_BASE64);
+  setIsOverlayReady(true);
+}, []);
+
 
   const captureImage = async () => {
     setIsCapturing(true);
@@ -2111,7 +2151,6 @@ export default function MultiPhotoPDFGenerator() {
       };
       setPhotos((prev) => [...prev, newPhoto]);
     }
-
     setIsCapturing(false);
   };
 
@@ -2191,6 +2230,30 @@ export default function MultiPhotoPDFGenerator() {
     setOverlayPosition(position);
   };
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt, gestureState) => {
+        const { moveX, moveY } = gestureState;
+        const containerX = evt.nativeEvent.pageX;
+        const containerY = evt.nativeEvent.pageY;
+        const containerWidth = width * 0.8 - scale(40);
+        const containerHeight = verticalScale(200);
+
+        const relativeX = Math.max(
+          0,
+          Math.min(1, (moveX - containerX) / containerWidth)
+        );
+        const relativeY = Math.max(
+          0,
+          Math.min(1, (moveY - containerY) / containerHeight)
+        );
+
+        updateOverlaySettings(overlayScale, { x: relativeX, y: relativeY });
+      },
+    })
+  ).current;
+
   const generatePDF = async () => {
     if (photos.length === 0) {
       Alert.alert(
@@ -2212,7 +2275,7 @@ export default function MultiPhotoPDFGenerator() {
 
     try {
       const buildHTML = () => {
-  let html = `
+        let html = `
     <html>
       <head>
         <meta charset="UTF-8">
@@ -2256,14 +2319,16 @@ export default function MultiPhotoPDFGenerator() {
       <body>
   `;
 
-  photos.forEach((photo) => {
-    if (photo.hidden && photo.overlayUri) {
-      // Convert scale to percentage (scale of 1.0 = 100%)
-      const percentageSize = Math.round((photo.overlayScale || 1.0) * 100);
-      const posX = (photo.overlayPosition?.x || 0.5) * 100;
-      const posY = (photo.overlayPosition?.y || 0.5) * 100;
-      
-      html += `
+        photos.forEach((photo) => {
+          if (photo.hidden && photo.overlayUri) {
+            // Convert scale to percentage (scale of 1.0 = 100%)
+            const percentageSize = Math.round(
+              (photo.overlayScale || 1.0) * 100
+            );
+            const posX = (photo.overlayPosition?.x || 0.5) * 100;
+            const posY = (photo.overlayPosition?.y || 0.5) * 100;
+
+            html += `
         <div class="page">
           <img class="page-image" src="${photo.uri}" />
           <div class="overlay-container">
@@ -2276,18 +2341,18 @@ export default function MultiPhotoPDFGenerator() {
           </div>
         </div>
       `;
-    } else {
-      html += `
+          } else {
+            html += `
         <div class="page">
           <img class="page-image" src="${photo.uri}" />
         </div>
       `;
-    }
-  });
+          }
+        });
 
-  html += `</body></html>`;
-  return html;
-};
+        html += `</body></html>`;
+        return html;
+      };
 
       // Convert HTML → PDF
       const { uri } = await Print.printToFileAsync({
@@ -2337,9 +2402,7 @@ export default function MultiPhotoPDFGenerator() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Answer Sheet Scanner</Text>
-        <Text style={styles.headerSubtitle}>
-          Capture answer sheets and hide student information
-        </Text>
+      
       </View>
 
       {photos.length > 0 ? (
@@ -2377,21 +2440,30 @@ export default function MultiPhotoPDFGenerator() {
                     />
 
                     {photo.hidden && photo.overlayUri && (
-                      <Image
-                        source={{ uri: photo.overlayUri }}
+                      <View
                         style={[
-                          styles.overlayThumbnail,
+                          styles.overlayContainer,
                           {
-                            transform: [
-                              { translateX: -50 },
-                              { translateY: -50 },
-                              { scale: photo.overlayScale || 1.0 },
-                            ],
-                            left: `${(photo.overlayPosition?.x || 0.5) * 100}%`,
-                            top: `${(photo.overlayPosition?.y || 0.5) * 100}%`,
+                            left:
+                              ((photo.overlayPosition?.x || 0.5) *
+                                (width - scale(48))) /
+                              2,
+                            top:
+                              (photo.overlayPosition?.y || 0.5) *
+                              verticalScale(140),
                           },
                         ]}
-                      />
+                      >
+                        <Image
+                          source={{ uri: photo.overlayUri }}
+                          style={[
+                            styles.overlayThumbnail,
+                            {
+                              transform: [{ scale: photo.overlayScale || 1.0 }],
+                            },
+                          ]}
+                        />
+                      </View>
                     )}
                   </TouchableOpacity>
 
@@ -2558,36 +2630,39 @@ export default function MultiPhotoPDFGenerator() {
 
             <ScrollView style={styles.modalBody}>
               <View style={styles.overlayPreview}>
-                <View style={styles.previewContainer}>
-                  {photos.length > 0 && defaultOverlayBase64 ? (
-                    <>
-                      {/* Background first image */}
-                      <Image
-                        source={{ uri: photos[0].uri }}
-                        style={styles.backgroundPreviewImage}
-                      />
+                <View
+                  style={styles.previewContainer}
+                  {...panResponder.panHandlers}
+                >
+                  {photos.length > 0 && defaultOverlayBase64 && isOverlayReady ? (
+  <>
+    <Image
+      source={{ uri: photos[0].uri }}
+      style={styles.backgroundPreviewImage}
+    />
 
-                      {/* Overlay image */}
-                      <Image
-                        source={{ uri: defaultOverlayBase64 }}
-                        style={[
-                          styles.overlayPreviewImage,
-                          {
-                            transform: [
-                              { translateX: -50 },
-                              { translateY: -50 },
-                              { scale: overlayScale },
-                            ],
-                            position: "absolute",
-                            left: `${overlayPosition.x * 100}%`,
-                            top: `${overlayPosition.y * 100}%`,
-                          },
-                        ]}
-                      />
-                    </>
-                  ) : (
-                    <ActivityIndicator size="small" color="#4299E1" />
-                  )}
+    <View
+      style={[
+        styles.overlayPreviewContainer,
+        {
+          left: overlayPosition.x * (width * 0.8 - scale(40)),
+          top: overlayPosition.y * verticalScale(200),
+        },
+      ]}
+    >
+      <Image
+        source={{ uri: defaultOverlayBase64 }}
+        style={[
+          styles.overlayPreviewImage,
+          { transform: [{ scale: overlayScale }] },
+        ]}
+      />
+    </View>
+  </>
+) : (
+  <ActivityIndicator size="small" color="#4299E1" />
+)}
+
                 </View>
 
                 <Text style={styles.overlayPreviewText}>
@@ -2705,24 +2780,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
-    paddingTop: Platform.OS === "ios" ? 50 : 20,
+    paddingTop: Platform.OS === "ios" ? verticalScale(50) : verticalScale(20),
   },
   header: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingVertical: verticalScale(20),
+    paddingHorizontal: responsivePadding.medium,
     backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: "#e9ecef",
   },
   headerTitle: {
-    fontSize: Platform.OS === "ios" ? 26 : 24,
+    fontSize: normalizeFont(Platform.OS === "ios" ? 26 : 24),
     fontWeight: "700",
     color: "#2D3748",
     textAlign: "center",
-    marginBottom: 5,
+    marginBottom: moderateScale(5),
   },
   headerSubtitle: {
-    fontSize: Platform.OS === "ios" ? 18 : 16,
+    fontSize: normalizeFont(Platform.OS === "ios" ? 18 : 16),
     color: "#718096",
     textAlign: "center",
   },
@@ -2731,128 +2806,134 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
+    padding: responsivePadding.medium,
     backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: "#e9ecef",
   },
   photosCount: {
-    fontSize: 16,
+    fontSize: normalizeFont(16),
     fontWeight: "600",
     color: "#4a5568",
   },
-  clearButton: { padding: 8 },
+  clearButton: { padding: scale(8) },
   clearButtonText: {
     color: "#e53e3e",
     fontWeight: "500",
+    fontSize: normalizeFont(14),
   },
-  photosContainer: { flex: 1, padding: 16 },
+  photosContainer: {
+    flex: 1,
+    padding: responsivePadding.medium,
+  },
   photosGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
   },
   photoItem: {
-    width: (width - 48) / 2,
-    height: 240,
-    marginBottom: 16,
-    borderRadius: 12,
+    width: (width - scale(48)) / 2,
+    height: verticalScale(240),
+    marginBottom: verticalScale(16),
+    borderRadius: scale(12),
     backgroundColor: "white",
     shadowColor: "#000",
     shadowOffset:
-      Platform.OS === "ios" ? { width: 0, height: 2 } : { width: 0, height: 1 },
+      Platform.OS === "ios"
+        ? { width: 0, height: scale(2) }
+        : { width: 0, height: scale(1) },
     shadowOpacity: Platform.OS === "ios" ? 0.1 : 0.3,
-    shadowRadius: Platform.OS === "ios" ? 4 : 1,
+    shadowRadius: Platform.OS === "ios" ? scale(4) : scale(1),
     elevation: Platform.OS === "android" ? 2 : 0,
     overflow: "hidden",
     position: "relative",
   },
   thumbnail: {
     width: "100%",
-    height: 140,
+    height: verticalScale(140),
     resizeMode: "cover",
   },
   hiddenThumbnail: {
     opacity: 0.7,
   },
-  overlayThumbnail: {
-    position: "absolute",
-    width: 100,
-    height: 100,
-    resizeMode: "contain",
-    opacity: 0.8,
-  },
+  // overlayThumbnail: {
+  //   position: "absolute",
+  //   width: scale(100),
+  //   height: scale(100),
+  //   resizeMode: "contain",
+  //   opacity: 0.8,
+  // },
   photoInfo: {
-    padding: 8,
+    padding: scale(8),
   },
   photoNumber: {
-    fontSize: 14,
+    fontSize: normalizeFont(14),
     fontWeight: "500",
     color: "#2d3748",
   },
   photoTime: {
-    fontSize: 12,
+    fontSize: normalizeFont(12),
     color: "#718096",
   },
   photoActions: {
     position: "absolute",
-    bottom: 8,
-    right: 8,
+    bottom: scale(8),
+    right: scale(8),
     flexDirection: "row",
     alignItems: "center",
   },
   hideButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 8,
-    padding: 4,
+    marginRight: scale(8),
+    padding: scale(4),
   },
   hideButtonText: {
-    fontSize: 12,
-    marginLeft: 4,
+    fontSize: normalizeFont(12),
+    marginLeft: scale(4),
   },
   deleteButton: {
     backgroundColor: "white",
-    borderRadius: 12,
-    padding: 2,
+    borderRadius: scale(12),
+    padding: scale(2),
   },
   hiddenBadge: {
     position: "absolute",
-    top: 5,
-    left: 5,
+    top: scale(5),
+    left: scale(5),
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(3),
+    borderRadius: scale(10),
     zIndex: 10,
   },
   hiddenBadgeText: {
     color: "white",
-    fontSize: 10,
-    marginLeft: 4,
+    fontSize: normalizeFont(10),
+    marginLeft: scale(4),
   },
   emptyState: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 40,
+    padding: scale(40),
   },
   emptyStateText: {
-    fontSize: 18,
+    fontSize: normalizeFont(18),
     fontWeight: "600",
     color: "#6B7280",
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: verticalScale(16),
+    marginBottom: verticalScale(8),
   },
   emptyStateSubtext: {
-    fontSize: 14,
+    fontSize: normalizeFont(14),
     color: "#9CA3AF",
     textAlign: "center",
   },
   actionsContainer: {
-    padding: 20,
+    padding: responsivePadding.large,
     backgroundColor: "white",
     borderTopWidth: 1,
     borderTopColor: "#e9ecef",
@@ -2862,20 +2943,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#4299E1",
-    padding: Platform.OS === "ios" ? 18 : 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: Platform.OS === "ios" ? verticalScale(18) : verticalScale(16),
+    borderRadius: scale(12),
+    marginBottom: verticalScale(12),
   },
   captureButtonText: {
     color: "white",
-    fontSize: 16,
+    fontSize: normalizeFont(16),
     fontWeight: "600",
-    marginLeft: 8,
+    marginLeft: scale(8),
   },
   pdfButton: {
     backgroundColor: "#48BB78",
-    padding: Platform.OS === "ios" ? 18 : 16,
-    borderRadius: 12,
+    padding: Platform.OS === "ios" ? verticalScale(18) : verticalScale(16),
+    borderRadius: scale(12),
   },
   pdfButtonDisabled: {
     backgroundColor: "#A0AEC0",
@@ -2887,9 +2968,9 @@ const styles = StyleSheet.create({
   },
   pdfButtonText: {
     color: "white",
-    fontSize: 16,
+    fontSize: normalizeFont(16),
     fontWeight: "700",
-    marginLeft: 10,
+    marginLeft: scale(10),
   },
   modalContainer: {
     flex: 1,
@@ -2900,40 +2981,41 @@ const styles = StyleSheet.create({
   modalContent: {
     width: width * 0.8,
     backgroundColor: "white",
-    borderRadius: 12,
+    borderRadius: scale(12),
     overflow: "hidden",
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
+    padding: responsivePadding.medium,
     borderBottomWidth: 1,
     borderBottomColor: "#e9ecef",
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: normalizeFont(18),
     fontWeight: "600",
     color: "#2d3748",
   },
   modalBody: {
-    padding: 16,
+    padding: responsivePadding.medium,
   },
   modalText: {
-    fontSize: 16,
+    fontSize: normalizeFont(16),
     color: "#4a5568",
-    marginBottom: 20,
+    marginBottom: verticalScale(20),
     textAlign: "center",
   },
   modalActions: {
     flexDirection: "column",
+    marginBottom: 40,
   },
   modalButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
+    borderRadius: scale(8),
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: verticalScale(10),
   },
   modalConfirmButton: {
     backgroundColor: "#4299E1",
@@ -2944,100 +3026,145 @@ const styles = StyleSheet.create({
   modalButtonText: {
     color: "white",
     fontWeight: "500",
+    fontSize: normalizeFont(14),
   },
   modalCaptureButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#4299E1",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 10,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
+    borderRadius: scale(8),
+    marginBottom: verticalScale(10),
   },
   modalCaptureButtonText: {
     color: "white",
     fontWeight: "500",
-    marginLeft: 8,
+    fontSize: normalizeFont(14),
+    marginLeft: scale(8),
   },
   modalDoneButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
+    borderRadius: scale(8),
     backgroundColor: "#e9ecef",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: verticalScale(10),
   },
   modalDoneButtonText: {
     color: "#4a5568",
     fontWeight: "500",
+    fontSize: normalizeFont(14),
   },
   overlayPreview: {
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: verticalScale(20),
   },
-  previewContainer: {
-    width: "100%",
-    height: 200,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
-    marginBottom: 8,
-    overflow: "hidden",
-    position: "relative",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  // previewContainer: {
+  //   width: "100%",
+  //   height: verticalScale(200),
+  //   backgroundColor: "#f0f0f0",
+  //   borderRadius: scale(8),
+  //   marginBottom: verticalScale(8),
+  //   overflow: "hidden",
+  //   position: "relative",
+  //   justifyContent: "center",
+  //   alignItems: "center",
+  // },
   backgroundPreviewImage: {
     width: "100%",
     height: "100%",
     resizeMode: "contain",
   },
-  overlayPreviewImage: {
-    width: 100,
-    height: 100,
-    resizeMode: "contain",
-  },
+  // overlayPreviewImage: {
+  //   width: scale(100),
+  //   height: scale(100),
+  //   resizeMode: "contain",
+  // },
   overlayPreviewText: {
-    fontSize: 14,
+    fontSize: normalizeFont(14),
     color: "#718096",
-    marginBottom: 16,
+    marginBottom: verticalScale(16),
     textAlign: "center",
   },
   controlsContainer: {
     width: "100%",
-    marginBottom: 20,
+    marginBottom: verticalScale(20),
   },
   controlLabel: {
-    fontSize: 16,
+    fontSize: normalizeFont(16),
     fontWeight: "500",
     color: "#4a5568",
-    marginBottom: 8,
+    marginBottom: verticalScale(8),
     textAlign: "center",
   },
   slider: {
     width: "100%",
-    height: 40,
-    marginBottom: 16,
+    height: verticalScale(40),
+    marginBottom: verticalScale(16),
   },
   moveButtonsContainer: {
-    marginTop: 10,
+    marginTop: verticalScale(10),
   },
   moveButtonsRow: {
     flexDirection: "row",
     justifyContent: "space-around",
-    marginBottom: 10,
+    marginBottom: verticalScale(10),
   },
   moveButton: {
     backgroundColor: "#4299E1",
-    padding: 12,
-    borderRadius: 8,
+    padding: verticalScale(12),
+    borderRadius: scale(8),
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 80,
+    minWidth: scale(80),
   },
   moveButtonText: {
     color: "white",
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: normalizeFont(12),
+    marginTop: verticalScale(4),
+  },
+  // Add these new styles
+  overlayContainer: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+    width: scale(100),
+    height: scale(100),
+    transform: [{ translateX: -scale(50) }, { translateY: -scale(50) }],
+  },
+
+  // overlayThumbnail: {
+  //   width: scale(100),
+  //   height: scale(100),
+  //   resizeMode: "contain",
+  // },
+
+  overlayPreviewContainer: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+    width: scale(100),
+    height: scale(100),
+    transform: [{ translateX: -scale(50) }, { translateY: -scale(50) }],
+  },
+
+  // Update the previewContainer to be relative positioning
+  previewContainer: {
+    width: "100%",
+    height: verticalScale(200),
+    backgroundColor: "#f0f0f0",
+    borderRadius: scale(8),
+    marginBottom: verticalScale(8),
+    overflow: "hidden",
+    position: "relative",
+  },
+
+  // Remove the transform from overlayPreviewImage
+  overlayPreviewImage: {
+    width: scale(100),
+    height: scale(100),
+    resizeMode: "contain",
   },
 });

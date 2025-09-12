@@ -270,12 +270,6 @@ export default function SubDashboard() {
         </Text>
       </View>
 
-      <View style= {{alignItems : 'center'}}>
-        <TouchableOpacity  onPress={() => router.push('/Dashboard/EduApp')}> 
-        <Text>eduapp</Text>
-
-        </TouchableOpacity>
-      </View>
 
       {subjectData.length > 0 ? (
         <FlatList

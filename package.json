@@ -43,7 +43,8 @@
     "expo-print": "~14.1.4",
     "expo-sharing": "~13.1.5",
     "@react-native-community/slider": "4.5.6",
-    "expo-image-manipulator": "~13.1.7"
+    "expo-image-manipulator": "~13.1.7",
+    "expo-screen-orientation": "~8.1.7"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

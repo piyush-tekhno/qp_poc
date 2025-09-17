@@ -22,7 +22,7 @@ const ClassListScreen = () => {
     name: `Class ${i + 1}`,
     students: Math.floor(Math.random() * 10) + 20,
     subjects: ['Math', 'Science', 'English', 'Social Studies'],
-    color: ['#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#E91E63', '#00BCD4', '#FFEB3B', '#8BC34A', '#FF5722'][i]
+    color: ['#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#E91E63', '#00BCD4', '#FFEB3B', '#89c743', '#FF5722'][i]
   }));
 
   const [selectedClass, setSelectedClass] = useState(null);
@@ -48,6 +48,7 @@ const ClassListScreen = () => {
   const handlePress = (classItem) => {
     setSelectedClass(classItem);
    router.push('/(tabs)/Dashboard/Student')
+  // router.push('/Dashboard/SubDashboard')
     // You can navigate or do any action here
   };
 
@@ -68,7 +69,7 @@ const ClassListScreen = () => {
         activeOpacity={0.7}
       >
         <View style={styles.classContent}>
-          {/* <Text style={styles.classNumber}>{item.id}</Text> */}
+      
           <Text style={styles.classNumber}>{item.name}</Text>
           <View style={styles.classStats}>
             <Text style={styles.statText}>{item.students} Students</Text>
